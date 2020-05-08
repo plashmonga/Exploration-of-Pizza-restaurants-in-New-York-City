@@ -1,0 +1,477 @@
+---
+title: "Exploration of Pizza restaurants in New York City"
+author:
+- ' Plash Monga'
+- ' Sumukh Purohit'
+date: ' 11/18/2019'
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+# {.tabset .tabset-fade}
+
+### If you're heading to New York and in search of good pizza, check out our exploration of the city's best Pizza and satisfy your cravings!
+
+
+## Introduction
+
+<top>
+<img src="D:/Course/Data Wrangling R/Project/pizza_data_project/pizza.png" height="270px" width="340px" style="float:right;margin:0 10px 10px 0">
+</top>
+
+
+__Problem Statement:__ <br>
+The objective of this project is to recommend top Pizzerias in the New York City and provide analysis on Pizza Restaurants in NYC based on it's location and price range. 
+ 
+__Approach:__ <br>
+
+Thanks to the `#tidytuesday` initiative we were able to get our hands on the pizza datasets viz [Pizza_Jared](https://jaredlander.com/data/PizzaPollData.php), [Pizza_Barstool](https://github.com/tylerjrichards/Barstool_Pizza) and [Pizza_Datafiniti](https://www.kaggle.com/datafiniti/pizza-restaurants-and-the-pizza-they-sell#Datafiniti_Pizza_Restaurants_and_the_Pizza_They_Sell_May19.csv).<br>
+
+After an initial analysis of the above dataset, we found that the maximum number of Pizzerias are in New York City and its neighbourhood. Hence, we focused on New York City data and consolidated all the available ratings into a single metric to recommend top Pizza Places in New York. We leveraged the _geo-location_ and _price range_ information present in Barstool's to categorize the Pizza Places according to its location and price range.
+
+## Packages Required 
+
+We used the following packages to arrive at our recommendations:
+
+  * tidyverse : Used in data processing and data transformation as well as for data visualization
+  * readr : Used for importing data CSV files
+  * GGally : Used for pairwise plots
+  * DT : Used for displaying table in HTML
+  * leaflet : Used to add Interactive Map
+  * glue : Used for Concatenating Name and Count in Graphs
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+library(tidyverse) # Used in data processing and data transformation as well as for data visualization 
+library(readr)    # Used for importing data CSV files
+library(GGally)   # Used for pairwise plots
+library(DT)       # Used for displaying table in HTML
+library(leaflet)  # Used to add Interactive Map
+library(glue)     # Used for Concatenating Name and Count in Graphs
+```
+
+## Data Preparation {.tabset .tabset-fade }
+
+### Data Import
+
+These data sets were part of `#tidytuesday` initiative. More information about it can be found [here.](https://github.com/rfordatascience/tidytuesday/tree/master/data/2019/2019-10-01)<br>
+
+There are three data sets:
+
+* [Pizza_Jared](https://jaredlander.com/data/PizzaPollData.php): Jared's data is from top NY pizza restaurants, with a 6-point likert scale survey on ratings.<br>
+
+* [Pizza_Barstool](https://github.com/tylerjrichards/Barstool_Pizza): The Barstool sports dataset has critic, public, and the Barstool Staff's rating as well as pricing, location, and geo-location. <br>
+
+* [Pizza_Datafiniti](https://www.kaggle.com/datafiniti/pizza-restaurants-and-the-pizza-they-sell#Datafiniti_Pizza_Restaurants_and_the_Pizza_They_Sell_May19.csv): The Dafiniti includes 10000 pizza places, their price ranges and location.<br>
+<br>
+
+First, we import all the datasets in R. Please find below the code for importing all the datasets:
+
+```{r message=FALSE}
+pizza_jared <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-10-01/pizza_jared.csv")
+pizza_barstool <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-10-01/pizza_barstool.csv")
+pizza_datafiniti <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-10-01/pizza_datafiniti.csv")
+```
+
+Importing US ZIPs to pull State for observations where state information is not available.
+
+The ZIPCODE-STATE mapping was downloaded from [simplemaps.com](https://simplemaps.com/data/us-zips).
+
+```{r message=FALSE}
+uszips <- readr::read_csv('uszips.csv')
+```
+
+Importing ZIP corresponding to boroughs in New York City. We will be using these to present borough wise analysis. Information of ZIP-borough was scraped from the following website:
+[nycbynatives.com](https://www.nycbynatives.com/nyc_info/new_york_city_zip_codes.php)
+
+```{r message=FALSE}
+nycboroughs <- readr::read_csv('nycboroughs.csv')
+```
+
+
+### Data Exploration and Cleaning {.tabset .tabset-fade}
+
+#### Pizza Barstool Dataset
+
+In `Pizza Barstool` dataset we found that:
+
+  * There are 463 observations and 22 variables
+  * `zip` column has some entries which have 4-digit zip codes, hence it is needed to front pad these zip codes  with '0' in order to pull the state information from `uszips` dataset
+  * 2 missing values are present in `latitude` and `longitude` columns. It can be pulled from `uszips` dataset based on the zip code
+```{r, results='hide', message=FALSE, warning=FALSE}
+# Checking the top 10 rows of the dataset
+head(pizza_barstool)
+
+#structure of the dataset
+str(pizza_barstool)
+
+#High level Summary of data
+summary(pizza_barstool)
+
+#Checking missing values in each column
+colSums(is.na(pizza_barstool))
+# Checking Record having missing value
+pizza_barstool[rowSums(is.na(pizza_barstool)) > 0,]
+
+# Checking Duplicates in data
+count(unique(pizza_barstool))
+```
+  * There are 451 unique pizza places at 463 different locations
+  * 11 Pizza places are present at multiple locations
+```{r, message=FALSE, warning=FALSE}
+# Checking count of unique observation in each variable
+pizza_barstool %>% 
+  summarise_each(funs(n_distinct))
+
+# Checking Count at Name and address level combined
+count(unique(pizza_barstool[c('name','address1')]))
+
+# Checking unique pizza places
+length(unique(tolower(pizza_barstool$name)))
+```
+  * Maximum Number of Pizza Places (~54%) are from New York City followed by Brooklyn (4%)
+```{r, message=FALSE, warning=FALSE}
+# Checking cities with maximum pizza places
+city_table <- as.data.frame(table(pizza_barstool$city))
+city_table_top <- (city_table %>% top_n(10))
+ggplot(city_table_top, 
+       aes(x = (reorder(city_table_top$Var1, 
+                        city_table_top$Freq)), 
+                        y = city_table_top$Freq)) + 
+geom_bar(stat = "identity") + 
+  labs(title = "Which City have maximum number of Pizza Places?", subtitle = "New York City has maximum number of Pizza Places", x = "City", y = "Number of Pizza Places") +
+coord_flip()  
+```
+
+#### Pizza Datafiniti Dataset
+
+[`Pizza_Datafiniti`](https://www.kaggle.com/datafiniti/pizza-restaurants-and-the-pizza-they-sell#Datafiniti_Pizza_Restaurants_and_the_Pizza_They_Sell_May19.csv) is a repository of Pizza Places and contains information regarding address and price range of Pizza Places
+
+  * There are 10,000 observations 10 variables
+  * Out of 10,000 observations only 2,285 observations are unique
+```{r, results='hide', message=FALSE, warning=FALSE}
+# Checking the top 10 rows of the dataset
+head(pizza_datafiniti)
+
+#structure of the dataset
+str(pizza_datafiniti)
+
+#High level Summary of data
+summary(pizza_datafiniti)
+
+#Checking missing values in each column
+colSums(is.na(pizza_datafiniti))
+
+# Checking Duplicates in data
+count(unique(pizza_datafiniti))
+
+# Removing Duplicates
+pizza_datafiniti_2 <- unique(pizza_datafiniti)
+
+#qc
+count(pizza_datafiniti_2)
+```
+  * There are 1,817 pizza places located at 2,278 different locations
+```{r, message=FALSE, warning=FALSE}
+# Checking count of unique observations in each variable
+pizza_datafiniti_2 %>% 
+  summarise_each(funs(n_distinct))
+
+# Checking unique pizza places
+length(unique(tolower(pizza_datafiniti_2$name)))
+```
+  * The maximum number of Pizza Places are from New York, followed by Brooklyn
+```{r, message=FALSE, warning=FALSE}
+# Checking cities with maximum pizza places
+city_table <- as.data.frame(table(pizza_datafiniti_2$city))
+city_table_top <- (city_table %>% top_n(10))
+ggplot(city_table_top, aes(x = reorder(city_table_top$Var1, city_table_top$Freq), y = city_table_top$Freq)) + geom_bar(stat = "identity") + labs(title = "Which City have maximum number of Pizza Places?", subtitle = "New York City has maximum number of Pizza Places", x = "City", y = "Number of Pizza Places") + expand_limits(y = 100) +
+coord_flip()
+```
+
+
+#### Pizza Jared Dataset
+
+After initial data exploration process with `Pizza_Jared` dataset, we found that:<br>
+
+  * There are 375 observation and 9 variables
+  * There are 5 missing values in `percent` because no survey rating was available for a place called _Bravo Pizza_
+  * The dataset does not have any information regarding the address and price range; hence it is needed to pull this information from [`Pizza_Datafiniti`](https://www.kaggle.com/datafiniti/pizza-restaurants-and-the-pizza-they-sell#Datafiniti_Pizza_Restaurants_and_the_Pizza_They_Sell_May19.csv) dataset
+  
+```{r, results='hide', message=FALSE, warning=FALSE}
+# Checking the top 10 rows of the dataset
+head(pizza_jared)
+
+#structure of the dataset
+str(pizza_jared)
+
+#High level Summary of data
+summary(pizza_jared)
+
+#Checking missing values in each column
+colSums(is.na(pizza_jared))
+# Checking Record having missing value
+pizza_jared[rowSums(is.na(pizza_jared)) > 0,]
+
+# Checking Duplicates in data
+count(unique(pizza_jared))
+```
+  * There are 5 types of Ratings for 75 different `polla_qid`
+  * There are 6 different types of rating `{Excellent,Good,Average,Fair,Poor,Never Again}` having 75 records each, out of which `Fair` have only one record and `Never Again` has 74 records
+  * The data is in _long_ format and we need to spread the using `polla_qid` as key 
+  * Despite having 75 `polla_qid`, the number of unique places is 56. We cannot arrive at the conclusion that duplicate places are the same or different as we don't have any information about their addresses.
+```{r, message=FALSE, warning=FALSE}
+# Checking count of unique observations in each variable
+pizza_jared %>% 
+  summarise_each(funs(n_distinct))
+
+# Checking total count for each of the answers
+table(pizza_jared$answer)
+```
+  * Spreading the `pizza_jared` dataset and pulling address and pizza range from `pizza_datafiniti` dataset:
+```{r, results='hide', message=FALSE, warning=FALSE}
+# Dropping Percent column and spreading the data
+pizza_jared_2 <- (pizza_jared %>% 
+                    subset(select = -percent) %>% 
+                      spread(answer,votes))
+
+# Pulling the values form Datafiniti
+pizza_jared_3 <- merge(x = pizza_jared_2, y = pizza_datafiniti_2, by.x = "place", by.y = "name", all.x = TRUE)
+```
+  * Only 10 records have address and pricing information from the `pizza_jared` dataset, hence we will be dropping `pizza_jared` dataset from our analysis
+```{r}
+# Checking Missing Values in each column
+colSums(is.na(pizza_jared_3))
+# Displaying data which does not missing value in address
+pizza_jared_3[!is.na(pizza_jared_3$address),]
+```
+
+
+### Data Manupilation {.tabset .tabset-fade}
+
+After checking unique values in `uszips`, we mapped _State Name_ from `uszips` dataset to `pizza_barstool` dataset. We were unable to map the state names for 3 records as we did not find a _zip-state_ mapping for them.
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+
+#checking the unique values in UsZips data
+unique(uszips$zip)
+
+# Keeping only unique values in nycboroughs
+nycboroughs <- unique(nycboroughs)
+
+#Storing only zip, State Name and County Name in new dataframe
+uszips_1 <- uszips[ , c("zip" , "state_name" , "county_name")]
+
+# Converting zip to numeric format as it is in Pizza Barstool data
+uszips_1$zip <- as.numeric(uszips_1$zip)
+
+# Pulling state name from USZIP data to Barstool dataset
+
+pizza_barstool_1 <- merge(x = pizza_barstool, y = uszips_1, by.x = "zip", by.y = "zip", all.x = TRUE)
+
+pizza_barstool_1 <- merge(x = pizza_barstool_1, y = nycboroughs, by.x = "zip", by.y = "zip", all.x = TRUE)
+
+
+# Checking count of missing values in the merged data 
+colSums(is.na(pizza_barstool_1))
+
+# Checking missing state name records
+pizza_barstool_1[is.na(pizza_barstool_1$state_name),]
+```
+
+As maximum records are from _New York City_, we have created a dataset for __286__ pizza places which are near the _New York City_ from `Pizza_Barstool` applying filters shown in code below:
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+
+# Sorting the Barstool data by New York city , Latitudes & Longitudes
+pizza_barstool_2 <- pizza_barstool_1 %>% filter(state_name == "New York" & between(latitude,39.5,41.5) & between(longitude,-74.5,-72.5))
+```
+
+Apart from having Name, Address and Price Range of Pizza Places Barstool's data had following different types of ratings: <br>
+
+  - Provider Rating: Pizza Rating available on [yelp](https://www.yelp.com/biz/pugsleys-pizza-bronx?adjust_creative=vx0vvUoLINMf_MmDPjIIwg&utm_campaign=yelp_api_v3&utm_medium=api_v3_business_search&utm_source=vx0vvUoLINMf_MmDPjIIwg). All the other ratings are in the scale of 10 except this one, hence we will convert this rating to the scale of 10 by multiplying it by 2
+  - Community Rating: Pizza rating of One Bite's Application User 
+  - Critic Rating: Pizza Rating is given by Critics
+  - Dave Rating: Review Score that Dave Portnoy, Barstool's reviewer, gave to the location
+
+There is also a rating which is a weighted average of Community, Critic and Dave rating. In our EDA phase, we will analyze the correlation between different types of ratings and arrive at a consolidated rating which will be a good reflection of all the other ratings.
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+# As all records are from New York we will only keep drop city, state_name, country, latitude and longitude. We will keep county name as we will use it afterwards when dividing whole city into different counties
+
+pizza_barstool_3 <- subset(pizza_barstool_2,select = -c(city,country,state_name))
+
+# Rounding off the Ratings to two decimal places
+pizza_barstool_3[, c(7,9,12,15,18)] <- round(pizza_barstool_3[, c(7,9,12,15,18)], digits = 2)
+
+# Checking Summary Stats of Numerical columns
+summary(pizza_barstool_3)
+
+# Multiplying Provider Rating by 2
+pizza_barstool_3$provider_rating <- 2*pizza_barstool_3$provider_rating
+
+# Removing "Review Stats" from column name in order to increase readability
+pizza_barstool_3 <- rename_all(pizza_barstool_3, ~str_remove(.,"review_stats_"))
+
+```
+
+### Data Preview
+
+Here is the preview of final `Pizza Barstool` dataset which we will use for our analysis
+
+```{r}
+DT::datatable(pizza_barstool_3)  # requires DT package
+```
+
+## Exploratory Data Analysis
+
+### Comparing Ratings
+
+#### Checking Correlation Between Different Types of Rating
+
+  * Most of the ratings are left-skewed except _Critic Average_. This is because _Critics_ have rated only 47 pizza places out of 286 places
+  * _Community Average_, too, have many observations where no rating is available hence we have a small peak in its distribution near 0
+  * _Stats all average_ is a weighted average of Critic's score, community's score and Dave's score and it also have good correlation*(Corr: 0.847)* with Dave's score. Hence _Stats all average_ can be a good metric for the representation of the combination of Critic's score, community's score and Dave's score
+  * The correlation between _Provider Rating_, which is a rating of Pizza Places taken from [yelp's website](https://www.yelp.com/biz/pugsleys-pizza-bronx?adjust_creative=vx0vvUoLINMf_MmDPjIIwg&utm_campaign=yelp_api_v3&utm_medium=api_v3_business_search&utm_source=vx0vvUoLINMf_MmDPjIIwg), and _Stats all average_ is not significant *(Corr: 0.407)* 
+
+```{r,message=FALSE, warning=FALSE}
+# Scatter Plot Matrix for all the ratings
+ggpairs(pizza_barstool_3, columns = c(7,9,12,15,18)) + ggtitle("How are the ratings related to each other?")
+```
+
+#### Comparsion between Provider Rating and all average score:
+
+The number of reviews in _Provider Rating_ are higher than that of _all average score_, hence we will only compare reviews for Pizza Places which have count of all reviews greater than 30.
+We found that:
+
+  * The _All Average Score_ tend to have higher score than _Provider Rating_, specifically for places which have low _Provider Rating_ 
+  * Both ratings seem independent and don't have any correlation between them.
+
+Moving forward, we would like to use _All Average Score_ for our analysis:
+
+  * It is better indicator as it is based on Community Score, Critic Rating and Barstool Staff Rating 
+  * It is also more granular than _Provider Rating_ which only has distinct values 
+
+```{r,message=FALSE, warning=FALSE}
+pizza_barstool_3 %>%
+  filter(all_count >= 30) %>%
+  ggplot(aes(provider_rating, all_average_score)) +
+  geom_point() +
+  geom_abline(color = "red") +
+  geom_smooth(method = "lm") +
+  labs(#size = "# of community reviews",
+       x = "Provider Rating",
+       y = "All average score",
+       title = "Does Provider Rating agree with all average score?")
+```
+
+## Takeaways {.tabset .tabset-fade}
+
+### Top Rated Pizza Places
+
+Top 20 Pizza places in the New York City which have more than 30 review counts:
+
+  * Lucali is the highest rated Pizza restaurant followed by Johnny's Pizzeria
+  * Sauce Pizzeria, Di Fara Pizza and John's of Bleecker Street also have very high rating along with very high number of reviews
+  
+```{r,message=FALSE, warning=FALSE}
+pizza_barstool_3 %>%
+  filter(all_count >= 30) %>% 
+  top_n(20, all_average_score) %>% 
+  mutate(name = fct_reorder(name, all_average_score)) %>%
+  ggplot(aes(all_average_score, name, size = all_count)) +
+  geom_point() +
+  labs(x = "Average rating",
+       y = "",
+       size = "# of reviews",
+       title = "Top 20 Pizza Places according to Barstool Sports ratings",
+       subtitle = "Only places with at least 30 reviews")
+```
+
+### Mapping Top 20 Pizza Places
+
+You can locate the top 20 Pizza Places in New York City in the following map:
+
+```{r,message=FALSE, warning=FALSE}
+top_20_pizza <- pizza_barstool_3 %>%
+                  filter(all_count >= 30) %>% 
+                  top_n(20, all_average_score)
+
+m <- leaflet(top_20_pizza) %>% addTiles()
+m %>% addMarkers(lng = ~ top_20_pizza$longitude, lat = ~ top_20_pizza$latitude, popup = paste("Name: " ,top_20_pizza$name , "<br>","Price_Level: ", top_20_pizza$price_level,  "<br>", "Rating: ", top_20_pizza$all_average_score))
+```
+
+
+### Which Borough has best Pizzas?
+
+Manhattan has maximum number of Pizza Places, whereas Brooklyn have highly rated Pizza Places
+
+```{r,message=FALSE, warning=FALSE}
+pizza_barstool_3 %>%
+  filter(Boroughs != 'NA') %>%
+  add_count(Boroughs) %>%
+  mutate(Boroughs = glue::glue("{ Boroughs } ({ n })")) %>%
+  ggplot(aes(Boroughs, all_average_score)) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(title = "Do pizza ratings differ across Boroughs?")
+```
+
+#### Top 5 Rated Pizza Places in Brooklyn
+
+```{r,message=FALSE, warning=FALSE}
+datatable(pizza_barstool_3 %>%
+                  filter(all_count >= 30, Boroughs == "Brooklyn") %>% 
+                  top_n(5, all_average_score) %>% 
+                  arrange(order(-all_average_score)) %>% 
+                  select(c("name","address1","price_level","all_average_score")))
+```
+
+#### Top 5 Rated Pizza Places in Manhattan
+
+```{r,message=FALSE, warning=FALSE}
+datatable(pizza_barstool_3 %>%
+                  filter(all_count >= 30, Boroughs == "Manhattan") %>% 
+                  top_n(5, all_average_score) %>% 
+                  arrange(order(-all_average_score)) %>% 
+                  select(c("name","address1","price_level","all_average_score")))
+```
+
+
+### Additional Analysis
+
+  * _Price Level_ "0" and "3" i.e. restaurants which are very cheap or very expensive tend to have higher average ratings. But there are also very few such restaurants
+  * Maximum Pizza Places are in _Price Level_ "1" and "2" i.e. they are moderately expensive and among them _Price Level_ "2", which is more expensive one, tend to have higher average rating
+  
+```{r,message=FALSE, warning=FALSE}
+pizza_barstool_3 %>%
+  filter(price_level != 'NA') %>%
+  add_count(price_level) %>%
+  mutate(price_level = glue::glue("{ price_level } ({ n })")) %>%
+  ggplot(aes(price_level, all_average_score)) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(title = "Do pizza ratings differ across different Price Levels?")
+```
+
+## Interactive Map and Future Scope
+
+You can find below the Map of all the Pizza Places in New York City along with their _All Average Score_ and _Price Level_
+
+```{r,message=FALSE, warning=FALSE}
+m <- leaflet(pizza_barstool_3) %>% addTiles()
+m %>% addMarkers(lng = ~ pizza_barstool_3$longitude, lat = ~ pizza_barstool_3$latitude, popup = paste("Name: " ,pizza_barstool_3$name , "<br>","Price_Level: ", pizza_barstool_3$price_level,  "<br>", "Rating: ", pizza_barstool_3$all_average_score))
+```
+
+### Future Scope:
+
+  * Interactive Dashboard can be made where user can select borough and price level and we can recommend Top Rated Pizza Places in that category
+  * An interactive Pizza Repository can be created using `Pizza Datafiniti` dataset, giving information on _Location_ and _Price Level_ across the US
+  * The analysis and findings can be expanded to different cities
+
